@@ -4,7 +4,6 @@ from torchvision.transforms import ToTensor, transforms
 from options import args_parser
 from Dataset.long_tailed_cifar10 import train_long_tail
 from Dataset.long_tailed_stl10 import train_long_tail_stl10
-from Dataset.train_long_tail_caltech101 import train_long_tail_caltech101
 from Dataset.dataset import classify_label, show_clients_data_distribution, Indices2Dataset, TensorDataset, get_class_num, Clip_Indices2Dataset
 from Dataset.sample_dirichlet import clients_indices
 from Dataset.Gradient_matching_loss import match_loss
@@ -399,14 +398,9 @@ class Local(object):
         return truth_gradient_avg
 
     def local_train(self, args, global_params, clip_model, text_features):
-        if args.dataset == 'caltech101':
-            transform_train = transforms.Compose([
-                transforms.RandomCrop(96, padding=8),
-                transforms.RandomHorizontalFlip()])
-        else:
-            transform_train = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip()])
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip()])
 
         self.local_model.load_state_dict(global_params)
         self.local_model.train()
@@ -480,18 +474,6 @@ def CLIP2FL():
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         ])
         transform_test = transform_all
-    elif args.dataset == 'caltech101':
-        transform_all = transforms.Compose([
-            transforms.Resize((112, 112)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
-        transform_test = transforms.Compose([
-            transforms.Resize((112, 112)),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-        ])
     else:
         transform_all = transforms.Compose([
             transforms.ToTensor(),
@@ -557,35 +539,8 @@ def CLIP2FL():
         data_local_training = datasets.STL10(args.path_stl10, split='train', download=download_stl10, transform=transform_all)
         clip_data_local_training = datasets.STL10(args.path_stl10, split='train', download=download_stl10, transform=preprocess)
         data_global_test = datasets.STL10(args.path_stl10, split='test', download=download_stl10, transform=transform_test)
-    elif args.dataset == 'caltech101':
-        caltech_train_dir = os.path.join(args.path_caltech101, '101_ObjectCategories')
-        # 경로가 존재하지 않으면 상대 경로도 시도
-        if not os.path.isdir(caltech_train_dir):
-            # options.py 기준 상대 경로 시도
-            path_dir = os.path.dirname(os.path.abspath(__file__))
-            default_caltech_dir = os.path.join(path_dir, 'data', 'Caltech101', '101_ObjectCategories')
-            if os.path.isdir(default_caltech_dir):
-                caltech_train_dir = default_caltech_dir
-                args.path_caltech101 = os.path.join(path_dir, 'data', 'Caltech101')
-            else:
-                raise FileNotFoundError(
-                    f"Caltech-101 directory not found: {caltech_train_dir}\n"
-                    f"Also tried: {default_caltech_dir}\n"
-                    "Please download Caltech-101 and extract it so that the structure is:\n"
-                    "data/Caltech101/101_ObjectCategories/<class_name>/*.jpg\n"
-                    f"Or specify the correct path with --path_caltech101"
-                )
-        data_local_training = datasets.ImageFolder(caltech_train_dir, transform=transform_all)
-        clip_data_local_training = datasets.ImageFolder(caltech_train_dir, transform=preprocess)
-        # Caltech-101은 train/test split이 없으므로 train 데이터를 사용
-        data_global_test = datasets.ImageFolder(caltech_train_dir, transform=transform_test)
-        
-        # Caltech-101의 경우 실제 클래스 수 확인 및 조정 (모델 초기화 전에 수행)
-        actual_num_classes = len(data_local_training.classes)
-        if args.num_classes != actual_num_classes:
-            print(f"Warning: Caltech-101 has {actual_num_classes} classes, but --num_classes={args.num_classes} was specified.")
-            print(f"Automatically adjusting to {actual_num_classes} classes.")
-            args.num_classes = actual_num_classes
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Supported datasets are: cifar10, cifar100, stl10")
 
     # get label_name from datasets
     if args.dataset == 'cifar10':
@@ -599,12 +554,8 @@ def CLIP2FL():
     elif args.dataset == 'stl10':
         # STL-10 class names
         label_name = ['airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck']
-    elif args.dataset == 'caltech101':
-        idx_to_class = {v: k for k, v in data_local_training.class_to_idx.items()}
-        label_name = [idx_to_class[i] for i in range(len(idx_to_class))]
-        # label_name 길이와 num_classes 일치 확인
-        if len(label_name) != args.num_classes:
-            raise ValueError(f"Label name count ({len(label_name)}) does not match num_classes ({args.num_classes})")
+    else:
+        raise ValueError(f"Unsupported dataset for label names: {args.dataset}. Supported datasets are: cifar10, cifar100, stl10")
 
     # CLIP PART and Loading data
     clip_model.eval()
@@ -630,9 +581,6 @@ def CLIP2FL():
     if args.dataset == 'stl10':
         _, list_label2indices_train_new = train_long_tail_stl10(copy.deepcopy(list_label2indices), args.num_classes,
                                                                args.imb_factor, args.imb_type)
-    elif args.dataset == 'caltech101':
-        _, list_label2indices_train_new = train_long_tail_caltech101(copy.deepcopy(list_label2indices), args.num_classes,
-                                                                     args.imb_factor, args.imb_type)
     else:
         _, list_label2indices_train_new = train_long_tail(copy.deepcopy(list_label2indices), args.num_classes,
                                                            args.imb_factor, args.imb_type)

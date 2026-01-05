@@ -631,6 +631,8 @@ def CLIP2FL():
         data_local_training = datasets.STL10(args.path_stl10, split='train', download=download_stl10, transform=transform_all)
         clip_data_local_training = datasets.STL10(args.path_stl10, split='train', download=download_stl10, transform=preprocess)
         data_global_test = datasets.STL10(args.path_stl10, split='test', download=download_stl10, transform=transform_test)
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Supported datasets are: cifar10, cifar100, stl10")
 
     if args.dataset == 'cifar10':
         cifar10_path = "data/CIFAR10/cifar-10-batches-py"
@@ -642,6 +644,8 @@ def CLIP2FL():
         label_name = obj_cifar100['fine_label_names']
     elif args.dataset == 'stl10':
         label_name = ['airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck']
+    else:
+        raise ValueError(f"Unsupported dataset for label names: {args.dataset}. Supported datasets are: cifar10, cifar100, stl10")
 
     clip_model.eval()
     text_inputs = clip.tokenize([f"a photo of a {c}" for c in label_name]).to(args.device)

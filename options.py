@@ -10,7 +10,6 @@ def args_parser():
     parser.add_argument('--path_cifar10', type=str, default=os.path.join(path_dir, 'data/CIFAR10/'))
     parser.add_argument('--path_cifar100', type=str, default=os.path.join(path_dir, 'data/CIFAR100/'))
     parser.add_argument('--path_stl10', type=str, default=os.path.join(path_dir, 'data/STL10/'))
-    parser.add_argument('--path_caltech101', type=str, default=os.path.join(path_dir, 'data/Caltech101/'))
     parser.add_argument('--path_imagenet', type=str, default=os.path.join(path_dir, 'data/ImageNet'))
     parser.add_argument('--num_classes', type=int, default=10)
     parser.add_argument('--num_clients', type=int, default=20)
@@ -40,7 +39,7 @@ def args_parser():
     # CLIP2FL
     parser.add_argument('--scale', default=1, type=int)
     parser.add_argument('--teacher_arch', metavar='ARCH', default='resnet8')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='cifar10/cifar100/stl10/caltech101/imagenet')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='cifar10/cifar100/stl10/imagenet')
     parser.add_argument('--beta', default=0.998, type=float)
     parser.add_argument('--result_save', type=str, default='results')
     parser.add_argument('--T', default=3.0, type=float, help='Input the temperature: default(3.0)')

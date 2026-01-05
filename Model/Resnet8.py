@@ -17,14 +17,12 @@ class LambdaLayer(nn.Module):
 
 class ResNetBase(nn.Module):
     def _decide_num_classes(self):
-        if self.dataset == "cifar10" or self.dataset == "svhn":
+        if self.dataset == "cifar10":
             return 10
         elif self.dataset == "cifar100":
             return 100
         elif "imagenet" in self.dataset:
             return 1000
-        elif "femnist" == self.dataset:
-            return 62
 
     def _weight_initialization(self):
         for m in self.modules():
