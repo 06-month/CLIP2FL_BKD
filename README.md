@@ -10,6 +10,9 @@ class frequency before distillation, so that tail classes are not drowned out by
 > Long-Tail Federated Learning Based on CLIP2FL"*, **KICS Winter Conference 2026**.
 > Hanbat National University. (\*corresponding author)
 
+I designed and implemented BKD, built the STL-10 long-tail pipeline and the experiment-tracking
+layer, and ran all experiments reported here.
+
 ---
 
 ## Problem
