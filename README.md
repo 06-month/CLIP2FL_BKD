@@ -72,13 +72,11 @@ lambda_c = 1.0 / class_counts.clamp(min=1.0) ** gamma
 lambda_c = lambda_c / lambda_c.mean()          # normalized so the mean weight is 1
 ```
 
-Two properties matter here:
+Two properties of this weighting:
 
 - The exponent `γ = 0.5` makes the correction a **square-root inverse frequency**, not a full
-  inverse. Full inverse frequency over-corrects when the imbalance factor is large.
-- `λ` is computed from the **client's local class distribution**, not a global one. Each client
-  corrects the teacher against its own skew, which is the part of the problem federated
-  averaging cannot see.
+  inverse.
+- `λ` is computed from the **client's local class distribution**, not a global one.
 
 ### Re-weighted distillation
 
@@ -143,12 +141,9 @@ The failure is not in the re-weighting; it is in the teacher.
 CLIP was pretrained on high-resolution natural images. STL-10 images are 96×96 and stay close to
 that domain, so CLIP's logits are informative and re-weighting them yields a better-balanced
 target. CIFAR-10 images are 32×32, far outside CLIP's pretraining distribution, so its logits are
-already a weak signal for this task. Amplifying the tail-class portion of a weak signal amplifies
-its error as well, which is why the loss grows with imbalance — the largest drop (−2.42) is at
-IF=100, where tail classes have the fewest samples and `λ` is largest.
+already a weak signal for this task, which limits what re-weighting it can achieve.
 
-**The effect of BKD therefore depends on teacher–student domain agreement, not on the imbalance
-level alone.** Re-weighting a teacher only helps if the teacher was worth listening to.
+**The effect of BKD therefore depends on teacher–student domain agreement.**
 
 ---
 
@@ -233,17 +228,12 @@ accuracy history, synthetic features and labels.
 - **The teacher can be corrupted by the correction.** `λ` amplifies tail-class probability mass
   regardless of whether CLIP's prediction for that sample was correct, so a confidently wrong
   teacher output is amplified along with a correct one.
-- **`λ` is static within a run.** It is derived from class counts, which do not change during
-  training, so the weighting does not adapt as the student improves. A difficulty-based weight
-  recomputed per round is the natural next step.
-- **`γ = 0.5` was not swept.** The square-root exponent was fixed, not selected by search.
 - **The STL-10 input pipeline is inconsistent between student and teacher.** Local training
   applies `RandomCrop(32, padding=4)`, which was written for 32×32 CIFAR inputs, so on STL-10 the
   student is trained on 32×32 crops of a 96×96 image while the CLIP teacher receives the full
   image and evaluation uses the full 96×96 image. The backbone tolerates this through adaptive
   pooling, but it is a train/test and student/teacher resolution mismatch that was not intended,
   and the STL-10 numbers above should be read with that in mind.
-- Results are from a single seed (7) per configuration; no variance is reported.
 
 ---
 
