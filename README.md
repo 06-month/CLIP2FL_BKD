@@ -1,214 +1,298 @@
-# CLIP2FL_BKD
-IoT 2차 프로젝트 논문 CLIP2FL에 BKD로직을 추가하여 재현한 레포지토리입니다.
+# CLIP2FL-BKD
 
-## CLIP2FL 실행 가이드
+**Balanced Knowledge Distillation for long-tail federated learning, built on CLIP2FL.**
 
-### 1. 환경 세팅
+CLIP2FL distills knowledge from a frozen CLIP teacher into client models. This repository
+replaces that distillation with **BKD**, which re-weights the teacher's output distribution by
+class frequency before distillation, so that tail classes are not drowned out by head classes.
 
-1. Conda 가상환경 생성 및 활성화
-   ```bash
-   conda create -n clip2fl python=3.7.9 -y
-   conda activate clip2fl
-   ```
+> Published as: Jun Jeon, Minu Baek, Sangkeum Lee\*, *"Balanced Knowledge Distillation (BKD) for
+> Long-Tail Federated Learning Based on CLIP2FL"*, **KICS Winter Conference 2026**.
+> Hanbat National University. (\*corresponding author)
 
-2. PyTorch 설치 (CUDA 11.0)
-   ```bash
-   pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 \
-     -f https://download.pytorch.org/whl/torch_stable.html
-   ```
+---
 
-3. 나머지 의존성 설치
-   ```bash
-   pip install -r requirements.txt
-   ```
-   *`requirements.txt`는 numpy, Pillow, tqdm, ftfy, regex, clip-by-openai 등을 포함*
+## Problem
 
-### 2. 데이터 준비
+Federated learning aggregates client updates without sharing client data. Two properties of
+realistic deployments break it at the same time:
 
-#### CIFAR-10/100
-- 데이터는 자동으로 다운로드됩니다 (`download=True` 옵션)
-- 기본 경로: `data/CIFAR10/`, `data/CIFAR100/`
-- `options.py`의 `--path_cifar10`, `--path_cifar100`로 경로 변경 가능
+- **Non-IID.** Each client holds a different class distribution, so local models overfit to
+  the classes they happen to own and their updates point in conflicting directions.
+- **Long-tail.** Head classes hold far more samples than tail classes, so aggregation is
+  dominated by head-class gradients and tail classes stay underfit.
 
-#### STL-10
-- 데이터는 자동으로 다운로드됩니다
-- 기본 경로: `data/STL10/`
-- `options.py`의 `--path_stl10`로 경로 변경 가능
+CLIP2FL addresses this by using CLIP as a teacher: each client distills CLIP's image-text
+similarity logits into its local model, injecting CLIP's representation into clients that have
+too little data of their own.
 
-### 3. 실행 방법
+**The limitation this repository targets:** CLIP2FL consumes the teacher distribution *as is*.
+CLIP's logits are not balanced with respect to the client's own class distribution, so
+distillation can transfer head-class bias straight into the student instead of correcting it.
 
-#### 기본 실행 (main_bkd.py)
+---
 
-현재 메인 실행 파일은 `main_bkd.py`입니다. BKD (Balanced Knowledge Distillation) 방식을 사용합니다.
+## What This Repository Adds
 
-#### CIFAR-10 실행 예시
+The repository keeps the CLIP2FL pipeline intact and changes the client-side distillation term.
+Both entry points are kept so the two settings can be run under identical conditions.
 
-```bash
-python main_bkd.py \
-  --dataset cifar10 \
-  --num_classes 10 \
-  --num_clients 20 \
-  --num_online_clients 8 \
-  --num_rounds 200 \
-  --num_epochs_local_training 10 \
-  --match_epoch 100 \
-  --crt_epoch 300 \
-  --contrast_alpha 0.001 \
-  --alpha 1.0 \
-  --non_iid_alpha 0.5 \
-  --imb_factor 0.01 \
-  --lr_local_training 0.1 \
-  --lr_feature 0.1 \
-  --lr_net 0.01 \
-  --gpu 0 \
-  --result_save results
+| | `main.py` (Base) | `main_bkd.py` (BKD) |
+|---|---|---|
+| Client distillation loss | `KDLoss` — KL against raw CLIP softmax | `BKD2Loss` — KL against **re-weighted** CLIP softmax |
+| Teacher re-weighting | none | per-class `λ`, computed from client class counts |
+| Datasets | CIFAR-10 / CIFAR-100 | CIFAR-10 / CIFAR-100 / **STL-10** |
+| Checkpoint / resume | no | every 10 rounds, `--resume` |
+| Run artifacts | log file | log + config / results / metadata JSON |
+
+Additional changes made in this repository:
+
+- **STL-10 long-tail support**, which upstream does not provide: a long-tail split
+  (`Dataset/long_tailed_stl10.py`), dataset integrity checks and conditional download, and
+  `AdaptiveAvgPool2d(1)` in the ResNet-8 backbone so the same student accepts both
+  32×32 (CIFAR) and 96×96 (STL-10) inputs.
+- **Reproducibility layer**: every run gets an `experiment_id`, and its configuration,
+  per-round accuracies, and wall-clock metadata are written as separate JSON files.
+- Removal of unused dataset paths (FEMNIST, SVHN, Caltech101) that were not part of the study.
+
+---
+
+## Method
+
+### Class weights
+
+At the start of local training, client *k* computes one weight per class from the number of
+samples it holds for that class:
+
+```python
+# main_bkd.py — class Local.__init__
+class_counts = torch.tensor(self.class_compose, dtype=torch.float32, device=self.device)
+gamma = 0.5
+lambda_c = 1.0 / class_counts.clamp(min=1.0) ** gamma
+lambda_c = lambda_c / lambda_c.mean()          # normalized so the mean weight is 1
 ```
 
-#### CIFAR-100 실행 예시
+Two properties matter here:
 
-```bash
-python main_bkd.py \
-  --dataset cifar100 \
-  --num_classes 100 \
-  --num_clients 20 \
-  --num_online_clients 8 \
-  --num_rounds 200 \
-  --num_epochs_local_training 10 \
-  --match_epoch 100 \
-  --crt_epoch 300 \
-  --contrast_alpha 0.001 \
-  --alpha 1.0 \
-  --non_iid_alpha 0.5 \
-  --imb_factor 0.01 \
-  --lr_local_training 0.1 \
-  --lr_feature 0.1 \
-  --lr_net 0.01 \
-  --gpu 0 \
-  --result_save results
+- The exponent `γ = 0.5` makes the correction a **square-root inverse frequency**, not a full
+  inverse. Full inverse frequency over-corrects when the imbalance factor is large.
+- `λ` is computed from the **client's local class distribution**, not a global one. Each client
+  corrects the teacher against its own skew, which is the part of the problem federated
+  averaging cannot see.
+
+### Re-weighted distillation
+
+`BKD2Loss` applies `λ` to the teacher distribution and renormalizes it before the KL term, so
+the result is still a probability distribution:
+
+```python
+pred_t = softmax(clip_logits / T)
+pred_t = pred_t * lambda_c
+pred_t = pred_t / pred_t.sum(1, keepdim=True)   # renormalize
+kd     = KL(log_softmax(student / T), pred_t) * T * T
 ```
 
-#### STL-10 실행 예시
+The client objective is unchanged in form:
 
-```bash
-python main_bkd.py \
-  --dataset stl10 \
-  --num_classes 10 \
-  --num_clients 20 \
-  --num_online_clients 8 \
-  --num_rounds 200 \
-  --num_epochs_local_training 10 \
-  --match_epoch 100 \
-  --crt_epoch 300 \
-  --contrast_alpha 0.001 \
-  --alpha 1.0 \
-  --non_iid_alpha 0.5 \
-  --imb_factor 0.01 \
-  --lr_local_training 0.1 \
-  --lr_feature 0.1 \
-  --lr_net 0.01 \
-  --gpu 0 \
-  --result_save results
+```
+L = L_CE + α · L_BKD
 ```
 
-### 4. 주요 하이퍼파라미터
+The design keeps the loss function itself untouched and only reshapes the teacher signal. This
+avoids the training instability that direct loss re-weighting (e.g. Focal Loss) can introduce
+in a federated setting, where each client already optimizes on a different distribution.
 
-- `--dataset`: 데이터셋 선택 (`cifar10`, `cifar100`, `stl10`)
-- `--num_classes`: 클래스 수 (CIFAR-10: 10, CIFAR-100: 100, STL-10: 10)
-- `--num_clients`: 전체 클라이언트 수 (기본: 20)
-- `--num_online_clients`: 각 라운드에 참여하는 클라이언트 수 (기본: 8)
-- `--num_rounds`: 연방 학습 라운드 수 (기본: 200)
-- `--num_epochs_local_training`: 클라이언트 로컬 학습 에폭 수 (기본: 10)
-- `--match_epoch`: 서버 측 합성 특징 최적화 반복 수 (기본: 100)
-- `--crt_epoch`: 서버 측 classifier 재훈련 반복 수 (기본: 300)
-- `--alpha`: BKD2 distillation 계수 (기본: 1.0)
-- `--contrast_alpha`: 서버 CLIP 손실 가중치 (기본: 0.001)
-- `--non_iid_alpha`: 비동질성 제어 (기본: 0.5, 작을수록 더 비동질)
-- `--imb_factor`: 불균형도 제어 (기본: 0.01, 작을수록 더 불균형)
-- `--lr_local_training`: 클라이언트 학습률 (기본: 0.1)
-- `--lr_feature`: 합성 특징 학습률 (기본: 0.1)
-- `--lr_net`: 네트워크 파라미터 학습률 (기본: 0.01)
-- `--gpu`: 사용할 GPU 번호 (기본: 1)
-- `--result_save`: 결과 저장 디렉토리 (기본: `results`)
-- `--resume`: 체크포인트에서 재개할 경로 (선택사항)
+### Setup used for the reported results
 
-### 5. 결과 저장
+| | |
+|---|---|
+| Teacher | CLIP ViT-B/32 (frozen) |
+| Student | ResNet-8, 512-d features |
+| Clients | 20 total, 8 sampled per round |
+| Rounds | 200, 10 local epochs each, batch size 32 |
+| Non-IID split | Dirichlet, `non_iid_alpha = 0.5` |
+| Server | 100 synthetic federated features per class; 100 matching steps; 300 classifier re-training steps |
+| Distillation | `T = 3.0`, `α = 1.0` |
+| Seed | 7 |
 
-실행 시 다음 파일들이 자동으로 저장됩니다:
+---
 
-- **로그 파일**: `results/{dataset}/main_clip2fl_bkd/{experiment_id}.log`
-- **설정 파일**: `results/{dataset}/main_clip2fl_bkd/{experiment_id}_config.json`
-- **메타데이터**: `results/{dataset}/main_clip2fl_bkd/{experiment_id}_metadata.json`
-- **결과 파일**: `results/{dataset}/main_clip2fl_bkd/{experiment_id}_results.json`
-- **체크포인트**: `results/{dataset}/main_clip2fl_bkd/checkpoints/{experiment_id}_checkpoint_round_{N}.pth`
-- **최종 모델**: `results/{dataset}/main_clip2fl_bkd/checkpoints/{experiment_id}_final_model.pth`
+## Results
 
-체크포인트는 매 10라운드마다 자동 저장되며, 중단된 실험을 재개할 수 있습니다.
+Top-1 accuracy (%). `IF` is the imbalance factor; higher means more skewed.
+Base is `main.py`, BKD is `main_bkd.py`, run under the settings above.
 
-### 6. 체크포인트에서 재개
+| Dataset | IF | Base | BKD | Δ |
+|---|---:|---:|---:|---:|
+| CIFAR-10 | 10 | 73.89 | 73.06 | −0.83 |
+| CIFAR-10 | 50 | 76.38 | 76.04 | −0.34 |
+| CIFAR-10 | 100 | 83.61 | 81.19 | −2.42 |
+| STL-10 | 10 | 42.44 | **43.25** | **+0.81** |
+| STL-10 | 50 | 43.63 | **45.31** | **+1.68** |
+| STL-10 | 100 | 52.34 | **53.89** | **+1.55** |
 
-중단된 실험을 재개하려면:
+**BKD improves STL-10 at every imbalance level and degrades CIFAR-10 at every imbalance level.**
+The result is split, and the split is the interesting part.
+
+---
+
+## Analysis
+
+The failure is not in the re-weighting; it is in the teacher.
+
+CLIP was pretrained on high-resolution natural images. STL-10 images are 96×96 and stay close to
+that domain, so CLIP's logits are informative and re-weighting them yields a better-balanced
+target. CIFAR-10 images are 32×32, far outside CLIP's pretraining distribution, so its logits are
+already a weak signal for this task. Amplifying the tail-class portion of a weak signal amplifies
+its error as well, which is why the loss grows with imbalance — the largest drop (−2.42) is at
+IF=100, where tail classes have the fewest samples and `λ` is largest.
+
+**The effect of BKD therefore depends on teacher–student domain agreement, not on the imbalance
+level alone.** Re-weighting a teacher only helps if the teacher was worth listening to.
+
+---
+
+## Setup
 
 ```bash
-python main_bkd.py \
-  --dataset cifar10 \
-  --resume results/cifar10/main_clip2fl_bkd/checkpoints/{experiment_id}_checkpoint_round_{N}.pth \
-  ... (나머지 옵션 동일)
-```
-
-### 7. 여러 GPU 병렬 실행
-
-#### 방법 1: 각 터미널에서 개별 실행
-
-각 터미널을 열어서 다른 GPU로 실행:
-
-**터미널 1 (GPU 0):**
-```bash
+conda create -n clip2fl python=3.7.9 -y
 conda activate clip2fl
-cd /workspace/basic_code_semina_01/hanbat/CLIP2FL
-python main_bkd.py --dataset cifar10 --gpu 0 --result_save results ...
+
+pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 \
+  -f https://download.pytorch.org/whl/torch_stable.html
+pip install -r requirements.txt      # includes CLIP from the official repo
 ```
 
-**터미널 2 (GPU 1):**
-```bash
-conda activate clip2fl
-cd /workspace/basic_code_semina_01/hanbat/CLIP2FL
-python main_bkd.py --dataset cifar100 --gpu 1 --result_save results ...
-```
+CIFAR-10, CIFAR-100 and STL-10 are downloaded automatically on first run into `data/`.
+Paths can be overridden with `--path_cifar10`, `--path_cifar100`, `--path_stl10`.
 
-**터미널 3 (GPU 2):**
-```bash
-conda activate clip2fl
-cd /workspace/basic_code_semina_01/hanbat/CLIP2FL
-python main_bkd.py --dataset stl10 --gpu 2 --result_save results ...
-```
+---
 
-#### 방법 2: GPU 사용량 확인
+## Usage
+
+Run the two entry points with identical arguments to reproduce a Base/BKD pair.
+`IF = 1 / imb_factor`, so `IF = 10, 50, 100` corresponds to `--imb_factor 0.1, 0.02, 0.01`.
 
 ```bash
-# 실시간 GPU 사용량 모니터링
-watch -n 1 nvidia-smi
+# BKD — STL-10, IF = 100
+python main_bkd.py \
+  --dataset stl10 --num_classes 10 \
+  --imb_factor 0.01 --non_iid_alpha 0.5 \
+  --num_clients 20 --num_online_clients 8 --num_rounds 200 \
+  --num_epochs_local_training 10 \
+  --match_epoch 100 --crt_epoch 300 \
+  --alpha 1.0 --T 3.0 --contrast_alpha 0.001 \
+  --lr_local_training 0.1 --lr_feature 0.1 --lr_net 0.01 \
+  --gpu 0 --result_save results
 
-# 또는
-nvidia-smi -l 1
+# Base — same configuration
+python main.py --dataset stl10 --num_classes 10 --imb_factor 0.01 ...
 ```
 
-### 8. 실험 팁
+Switch datasets with `--dataset cifar10|cifar100|stl10` and set `--num_classes` accordingly
+(CIFAR-100 uses 100).
 
-- **빠른 테스트**: `--small_match_epoch 3`, `--small_crt_epoch 3`로 빠른 검증 가능
-- **재현성**: `--seed` 고정 (기본: 7)으로 동일한 결과 재현 가능
-- **불균형 조정**: `--imb_factor`를 조정하여 데이터 불균형도 변경 (0.01, 0.02, 0.1 등)
-- **비동질성 조정**: `--non_iid_alpha`를 조정하여 클라이언트 간 데이터 분포 조정 (작을수록 더 비동질)
-- **학습률 조정**: 데이터셋에 따라 `--lr_local_training`, `--lr_feature`, `--lr_net` 조정 필요
+### Key arguments
 
-### 9. 결과 확인
+| Argument | Meaning | Default |
+|---|---|---|
+| `--imb_factor` | Long-tail severity; smaller is more imbalanced | `0.01` |
+| `--non_iid_alpha` | Dirichlet concentration; smaller is more heterogeneous | `0.5` |
+| `--alpha` | Weight of the distillation term | `1.0` |
+| `--T` | Distillation temperature | `3.0` |
+| `--contrast_alpha` | Weight of the server-side prototype contrastive loss | `0.001` |
+| `--match_epoch` | Federated-feature optimization steps per round | `100` |
+| `--crt_epoch` | Classifier re-training steps per round | `300` |
+| `--resume` | Resume from a checkpoint | — |
 
-실험 결과는 JSON 파일로 저장되며, 다음 정보를 포함합니다:
+---
 
-- `final_accuracy`: 최종 정확도
-- `best_accuracy`: 최고 정확도
-- `all_accuracies`: 모든 라운드의 정확도 리스트
-- `total_rounds`: 총 라운드 수
-- `total_time_seconds`: 총 실행 시간 (초)
-- `total_time_hours`: 총 실행 시간 (시간)
+## Experiment Tracking
 
-결과 파일을 파싱하거나 직접 확인하여 실험 결과를 분석할 수 있습니다.
+Each run is identified by `{timestamp}_main_clip2fl_bkd_{alpha}_{contrast_alpha}_IF{imb_factor}`
+and writes to `results/{dataset}/main_clip2fl_bkd/`:
+
+| File | Contents |
+|---|---|
+| `{id}.log` | Full training log |
+| `{id}_config.json` | Every argument used for the run |
+| `{id}_results.json` | Final / best accuracy, per-round accuracy list, total runtime |
+| `{id}_metadata.json` | Run metadata |
+| `checkpoints/{id}_checkpoint_round_{N}.pth` | Saved every 10 rounds |
+| `checkpoints/{id}_final_model.pth` | Final model |
+
+Interrupted runs resume with `--resume <checkpoint path>`, restoring the round index,
+accuracy history, synthetic features and labels.
+
+---
+
+## Limitations
+
+- **BKD does not help on CIFAR-10.** The method is only validated as beneficial where the
+  teacher's domain is close to the student's data.
+- **The teacher can be corrupted by the correction.** `λ` amplifies tail-class probability mass
+  regardless of whether CLIP's prediction for that sample was correct, so a confidently wrong
+  teacher output is amplified along with a correct one.
+- **`λ` is static within a run.** It is derived from class counts, which do not change during
+  training, so the weighting does not adapt as the student improves. A difficulty-based weight
+  recomputed per round is the natural next step.
+- **`γ = 0.5` was not swept.** The square-root exponent was fixed, not selected by search.
+- **The STL-10 input pipeline is inconsistent between student and teacher.** Local training
+  applies `RandomCrop(32, padding=4)`, which was written for 32×32 CIFAR inputs, so on STL-10 the
+  student is trained on 32×32 crops of a 96×96 image while the CLIP teacher receives the full
+  image and evaluation uses the full 96×96 image. The backbone tolerates this through adaptive
+  pooling, but it is a train/test and student/teacher resolution mismatch that was not intended,
+  and the STL-10 numbers above should be read with that in mind.
+- Results are from a single seed (7) per configuration; no variance is reported.
+
+---
+
+## Repository Structure
+
+```
+.
+├── main.py                       # Base: CLIP2FL with standard KD
+├── main_bkd.py                   # BKD: re-weighted teacher distillation (+ checkpointing)
+├── options.py                    # All hyperparameters
+├── losses.py                     # Server-side prototype contrastive loss
+├── Dataset/
+│   ├── long_tailed_cifar10.py    # CIFAR long-tail split (upstream)
+│   ├── long_tailed_stl10.py      # STL-10 long-tail split (added here)
+│   ├── sample_dirichlet.py       # Non-IID client partitioning
+│   ├── param_aug.py              # Differentiable Siamese augmentation
+│   └── Gradient_matching_loss.py
+├── Model/
+│   ├── Resnet8.py / Resnet8_256.py   # ResNet-8 student (adaptive pooling for 32/96 px)
+│   ├── ResNet50.py
+│   └── nets.py
+├── requirements.txt
+└── README_base.md                # Original CLIP2FL README, kept unmodified
+```
+
+---
+
+## Citation
+
+```bibtex
+@inproceedings{jeon2026bkd,
+  title     = {Balanced Knowledge Distillation (BKD) for Long-Tail Federated Learning Based on CLIP2FL},
+  author    = {Jeon, Jun and Baek, Minu and Lee, Sangkeum},
+  booktitle = {KICS Winter Conference},
+  year      = {2026}
+}
+```
+
+---
+
+## Acknowledgments
+
+This work builds on the official implementation of **CLIP2FL**
+(Shi et al., *CLIP-guided Federated Learning on Heterogeneous and Long-Tailed Data*, AAAI 2024),
+which is itself based on [CReFF](https://github.com/shangxinyi/CReFF-FL).
+The original project README is preserved in [`README_base.md`](README_base.md).
+The CLIP encoder is the official [OpenAI CLIP](https://github.com/openai/CLIP) release.
+
+Model, dataset-partitioning and augmentation code under `Model/`, `Dataset/sample_dirichlet.py`,
+`Dataset/param_aug.py`, `Dataset/Gradient_matching_loss.py` and `losses.py` originate from those
+projects. The BKD loss, the STL-10 long-tail pipeline, and the experiment-tracking layer are
+specific to this repository.
