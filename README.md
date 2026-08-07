@@ -3,7 +3,7 @@
 **Long-tail federated learning을 위한 Balanced Knowledge Distillation. CLIP2FL 위에 구현했다.**
 
 CLIP2FL은 고정된 CLIP teacher의 지식을 client 모델로 distillation한다. 이 저장소는 그 distillation을
-**BKD**로 교체한다. BKD는 teacher의 출력 분포를 class 빈도로 재가중한 뒤 distillation하므로,
+**BKD** 로 교체한다. BKD는 teacher의 출력 분포를 class 빈도로 재가중한 뒤 distillation하므로,
 head class가 tail class를 덮어쓰지 않는다.
 
 > 게재: Jun Jeon, Minu Baek, Sangkeum Lee\*, *"Balanced Knowledge Distillation (BKD) for
@@ -34,7 +34,7 @@ class 분포에 대해 balanced하지 않기 때문에, distillation이 head cla
 
 ---
 
-## 이 저장소가 추가한 것
+## 요약
 
 CLIP2FL 파이프라인은 그대로 두고 client 쪽 distillation 항만 바꿨다. 두 설정을 동일 조건에서 비교할 수
 있도록 진입점을 둘 다 남겨두었다.
@@ -47,7 +47,7 @@ CLIP2FL 파이프라인은 그대로 두고 client 쪽 distillation 항만 바�
 | Checkpoint / resume | 없음 | 10 round마다 저장, `--resume` |
 | 실행 산출물 | 로그 파일 | 로그 + config / results / metadata JSON |
 
-그 밖에 이 저장소에서 변경한 것들이다.
+그 밖에 해당 연구에서 변경한 것들이다.
 
 - **STL-10 long-tail 지원.** upstream에는 없다. long-tail split(`Dataset/long_tailed_stl10.py`),
   데이터셋 무결성 검사와 조건부 다운로드를 추가했고, ResNet-8 backbone에 `AdaptiveAvgPool2d(1)`을 넣어
@@ -100,7 +100,7 @@ loss 함수 자체는 건드리지 않고 teacher 신호만 바꾸는 설계다.
 다른 분포 위에서 최적화하고 있기 때문에, loss를 직접 재가중하는 방식(예: Focal Loss)은 학습 불안정을
 유발할 수 있다. 이 설계는 그 위험을 피한다.
 
-### 보고된 결과의 실험 설정
+### 실험 설정
 
 | | |
 |---|---|
