@@ -3,7 +3,7 @@
 **Long-tail federated learning을 위한 Balanced Knowledge Distillation. CLIP2FL 위에 구현했다.**
 
 CLIP2FL은 고정된 CLIP teacher의 지식을 client 모델로 distillation한다. 이 저장소는 그 distillation을
-**BKD** 로 교체한다. BKD는 teacher의 출력 분포를 class 빈도로 재가중한 뒤 distillation하므로,
+**BKD**로 교체한다. BKD는 teacher의 출력 분포를 class 빈도로 재가중한 뒤 distillation하므로,
 head class가 tail class를 덮어쓰지 않는다.
 
 > 게재: Jun Jeon, Minu Baek, Sangkeum Lee\*, *"Balanced Knowledge Distillation (BKD) for
@@ -187,7 +187,7 @@ python main.py --dataset stl10 --num_classes 10 --imb_factor 0.01 ...
 데이터셋은 `--dataset cifar10|cifar100|stl10`으로 바꾸고 `--num_classes`를 함께 맞춘다
 (CIFAR-100은 100).
 
-### 주요 인자
+### 하이퍼 파라미터
 
 | 인자 | 의미 | 기본값 |
 |---|---|---|
